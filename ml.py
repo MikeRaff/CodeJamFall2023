@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 from math import radians, sin, cos, sqrt, atan2
 from datetime import datetime, timedelta, timezone
+import random
 
 class Load:
     def __init__(self, features):
@@ -178,19 +179,60 @@ class LoadTruckMatchingEnv(gym.Env):
         self.observation_space = spaces.Box(low=0, high=1, shape=(self.num_loads + self.num_trucks,), dtype=np.float32)
 
         # State representation: concatenation of load and truck properties
-        
         all_load_features = []
-        
-        for j in range (len(load_df["Seq"])):
-            for i in range (1, 11):
-                all_load_features.append(load_df.iloc[j][i])
-                
+        for j in range(len(load_df["Seq"])):
+            for i in range(1, 11):
+                if i == 2:
+                    date_string =load_df.iloc[j][i]
+                    date_format = '%Y-%m-%dT%H:%M:%S'
+                    datetime_object = datetime.strptime(date_string, date_format)
+                    all_load_features.append(int(datetime_object.timestamp()))
+                    
+                else:
+                    if load_df.iloc[j][i] == "Van":
+                        load_df.iloc[j][i] = 1;
+                    elif load_df.iloc[j][i] == "Reefer":
+                        load_df.iloc[j][i] = 2;
+                    elif load_df.iloc[j][i] == "Flatbed":
+                        load_df.iloc[j][i] = 3;
+                    
+                    else:
+                        if load_df.iloc[j][i] != -1:
+                            as_int = int(load_df.iloc[j][i])
+                            all_load_features.append(as_int)
+                        else:
+                            all_load_features.append(-1)
+
         all_truck_features = []
-        
-        for j in range (len(truck_df["Seq"])):
-            for i in range (1, 8):
-                all_truck_features.append(truck_df.iloc[j][i])
-        
+        for j in range(len(truck_df["Seq"])):
+            for i in range(1, 8):
+                
+                if i == 2:
+                    date_string =truck_df.iloc[j][i]
+                    date_format = '%Y-%m-%dT%H:%M:%S'
+                    datetime_object = datetime.strptime(date_string, date_format)
+                    all_truck_features.append(int(datetime_object.timestamp()))
+                else:
+                    if truck_df.iloc[j][i] == "Van":
+                        truck_df.iloc[j][i] = 1;
+                    elif truck_df.iloc[j][i] == "Reefer":
+                        truck_df.iloc[j][i] = 2;
+                    elif truck_df.iloc[j][i] == "Flatbed":
+                        truck_df.iloc[j][i] = 3;
+                        
+                        
+                    elif truck_df.iloc[j][i] == "Short":
+                        truck_df.iloc[j][i] = 4;
+                        
+                    elif truck_df.iloc[j][i] == "Long":
+                        truck_df.iloc[j][i] = 5;
+                    else:
+                        if truck_df.iloc[j][i] != -1:
+                            as_int = int(truck_df.iloc[j][i])
+                            all_truck_features.append(as_int)
+                        else:
+                            all_truck_features.append(-1)
+
         self.state = np.array(all_load_features + all_truck_features)
 
         # Initial state
@@ -210,46 +252,96 @@ class LoadTruckMatchingEnv(gym.Env):
                     reward += match_load(truck, load)
         return reward
 
-    def step(self, action): #action is a load
-        
+    def step(self, action):  # action is a load
         unique_id = action.load_id
+
+        # Find the best matching truck for the given load
+        best_truck = None
+        best_score = -1
+        index = 0
+
+        for i in range(len(trucks)):
+            if best_truck is not None:
+                score = match_load(trucks[i], action)
+                if score > best_score:
+                    best_score = score
+                    best_truck = trucks[i]
+                    index = i
+
+        if best_truck is not None:
+            # Update the position of the best matching truck
+            best_truck.position_longitude = action.origin_longitude
+            best_truck.position_latitude = action.origin_latitude
+
+        trucks[index] = best_truck
+
+        # Mark the load as matched
         for i in range(len(self.state)):
             if self.state[i] == unique_id:
                 for j in range(-2, 8):
-                    self.state[j] = None
-            #also move truck
-        reward = self.calculate_reward()            
-          
+                    self.state[j] = -1
+
+        # Calculate the reward
+        reward = self.calculate_reward()
+
+        # Check if all trucks are matched
         numeric_state = pd.to_numeric(self.state[:self.num_trucks], errors='coerce')
         done = all(numeric_state > 0)
 
         return self.state, reward, done
-                    
-                    
-        # Calculate the reward (you may define your own reward function)
-        #reward = self.calculate_reward()
-
-        # Check if all trucks are matched
-        #done = all(self.state[:self.num_trucks] > 0)
-
-        #return self.state, reward, done, {}
-
     
 
 
 # creating environment
 
+class QLearningAgent:
+    def __init__(self, state_size, action_size, learning_rate=0.1, discount_factor=0.9, exploration_rate=1.0, exploration_decay=0.995):
+        self.state_size = state_size
+        self.action_size = action_size
+        self.learning_rate = learning_rate
+        self.discount_factor = discount_factor
+        self.exploration_rate = exploration_rate
+        self.exploration_decay = exploration_decay
+        self.q_table = np.zeros((state_size, action_size))
+
+    def select_action(self, state):
+        if np.random.rand() < self.exploration_rate:
+            return np.random.choice(self.action_size)
+        else:
+            return np.argmax(self.q_table[state, :])
+
+    def update_q_table(self, state, action, reward, next_state):
+        
+        for i in range(len(next_state)):
+            if np.issubdtype(type(next_state[i]), np.datetime64):
+                next_state[i] = int(datetime.timestamp(next_state[i]))
+                print(next_state[i])
+        
+        best_next_action = np.argmax(self.q_table)
+        
+        target = reward + self.discount_factor * self.q_table[next_state.astype(int), best_next_action]
+        self.q_table[state, action] = (1 - self.learning_rate) * self.q_table[state, action] + self.learning_rate * target
+        # Decay exploration rate
+        self.exploration_rate *= self.exploration_decay
+        
+        
 env = LoadTruckMatchingEnv(loads=loads, trucks=trucks)
+state_size = len(env.state)
+action_size = len(loads)
+agent = QLearningAgent(state_size=state_size, action_size=action_size)
+
+total_reward = 0
 
 for episode in range(10):
     state = env.reset()
-    total_reward = 0
 
     for step in range(1):
-        action = loads[0]  # Random action for illustration
+        action_index = agent.select_action(state)
+        action = loads[action_index]
         next_state, reward, done = env.step(action)
 
-        # Update Q-values or any learning algorithm here
+        # Update Q-values
+        agent.update_q_table(state, action_index, reward, next_state)
 
         total_reward += reward
 
