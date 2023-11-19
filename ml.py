@@ -252,8 +252,11 @@ class LoadTruckMatchingEnv(gym.Env):
                     reward += match_load(truck, load)
         return reward
 
-    def step(self, action):  # action is a load
-        unique_id = action.load_id
+    def step(self, action_index):  # action is a load?
+        a = self.state[action_index]
+        print(type(a))
+        
+        unique_id = action_index.load_id
 
         # Find the best matching truck for the given load
         best_truck = None
@@ -327,7 +330,7 @@ class QLearningAgent:
         
 env = LoadTruckMatchingEnv(loads=loads, trucks=trucks)
 state_size = len(env.state)
-action_size = len(loads)
+action_size = len(env.state)
 agent = QLearningAgent(state_size=state_size, action_size=action_size)
 
 total_reward = 0
@@ -337,7 +340,8 @@ for episode in range(10):
 
     for step in range(1):
         action_index = agent.select_action(state)
-        action = loads[action_index]
+        print(action_index)
+        action = env.state[action_index] #not getting a load object
         next_state, reward, done = env.step(action)
 
         # Update Q-values
