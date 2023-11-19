@@ -1,3 +1,9 @@
+#How to use it:
+#- Run the code
+#- Wait until the front end display pops up (this may take up to 3 minutes)
+#- When the front end pops up, enter your truck id to see your loads.
+
+# make sure you have paho-mqtt installed. (command = pip install paho-mqtt)
 import paho.mqtt.client as mqtt
 import pandas as pd
 import json
